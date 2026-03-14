@@ -46,7 +46,7 @@ export const TrendLineChart: React.FC<TrendLineChartProps> = ({
   return (
     <div className="w-full">
       {title && <h3 className="text-lg font-semibold mb-4 text-gray-900">{title}</h3>}
-      <ResponsiveContainer width="100%" height={280}>
+      <ResponsiveContainer width="100%" height={280} minWidth={0} minHeight={220}>
         <LineChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
           <XAxis

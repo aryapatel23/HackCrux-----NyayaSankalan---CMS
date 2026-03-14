@@ -4,7 +4,6 @@ import { Header } from '../../components/layout/Header';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
-import { Loader } from '../../components/common/Loader';
 import { TableSkeleton } from '../../components/common/SkeletonLoader';
 import { ErrorMessage } from '../../components/common/ErrorMessage';
 import { EmptyState } from '../../components/common/EmptyState';
@@ -114,7 +113,7 @@ export const SHOAllCases: React.FC = () => {
   if (isLoading) {
     return (
       <>
-        <Header />
+        <Header title="All Cases" subtitle="Loading cases" />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-8">All Cases</h1>
           <TableSkeleton rows={8} columns={6} />

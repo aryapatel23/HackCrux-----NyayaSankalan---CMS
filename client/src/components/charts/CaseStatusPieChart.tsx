@@ -29,7 +29,7 @@ export const CaseStatusPieChart: React.FC<CaseStatusPieChartProps> = ({ data, ti
     return (
         <div className="w-full">
             {title && <h3 className="text-lg font-semibold mb-4 text-gray-900">{title}</h3>}
-            <ResponsiveContainer width="100%" height={300}>
+            <ResponsiveContainer width="100%" height={300} minWidth={0} minHeight={220}>
                 <PieChart>
                     <Pie
                         data={data}

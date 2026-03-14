@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
     PieChart, Pie, Cell, LineChart, Line
 } from 'recharts';
 import { Header } from '../../components/layout/Header';
@@ -63,7 +63,7 @@ export const AnalyticsDashboard: React.FC = () => {
                 {/* Pie Chart: Case Distribution */}
                 <Card title="Case Status Breakdown">
                     <div className="h-80 w-full">
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={240}>
                             <PieChart>
                                 <Pie
                                     data={data.statusDistribution}
@@ -72,9 +72,9 @@ export const AnalyticsDashboard: React.FC = () => {
                                     outerRadius={100}
                                     fill="#8884d8"
                                     dataKey="value"
-                                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                                    label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
                                 >
-                                    {data.statusDistribution.map((entry: any, index: number) => (
+                                    {data.statusDistribution.map((_: any, index: number) => (
                                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                     ))}
                                 </Pie>
@@ -87,7 +87,7 @@ export const AnalyticsDashboard: React.FC = () => {
                 {/* Line Chart: Monthly Trends */}
                 <Card title="Monthly Crime Trend (Last 6 Months)">
                     <div className="h-80 w-full">
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={240}>
                             <LineChart data={data.monthlyTrends}>
                                 <CartesianGrid strokeDasharray="3 3" />
                                 <XAxis dataKey="name" />
@@ -102,7 +102,7 @@ export const AnalyticsDashboard: React.FC = () => {
                 {/* Bar Chart: Case Load (Simulated for Demo) */}
                 <Card title="Efficiency Metrics" className="lg:col-span-2">
                     <div className="h-64 w-full">
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
                             <BarChart data={[
                                 { name: 'Investigation', value: 45 },
                                 { name: 'Documentation', value: 80 },
