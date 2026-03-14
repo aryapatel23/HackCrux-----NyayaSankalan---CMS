@@ -82,7 +82,7 @@ export const AISearchWidget: React.FC = () => {
 
   return (
     <div className="rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-      <div className="bg-gradient-to-r from-blue-50 via-purple-50 to-blue-50 p-4 border-b">
+      <div className="bg-linear-to-r from-blue-50 via-purple-50 to-blue-50 p-4 border-b">
         <h3 className="text-lg font-semibold flex items-center gap-2">
           🔍 AI Case Similarity & Knowledge Search
           <Badge variant="info">
@@ -94,7 +94,7 @@ export const AISearchWidget: React.FC = () => {
       <div className="p-4 space-y-4">
 
         <div className="flex flex-wrap items-end gap-3">
-          <div className="flex-1 min-w-[240px]">
+          <div className="flex-1 min-w-60">
             <Input
               label="Search query"
               placeholder="Search using IPC sections, entities, case details or keywords…"
