@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext.tsx';
-import { Input } from '../../components/ui/Input.tsx';
-import { Button } from '../../components/ui/Button.tsx';
-import { UserRole } from '../../types/api.types.ts';
-import { GovernmentLogo } from '../../components/common/GovernmentLogo.tsx';
+import { useAuth } from '../../context/AuthContext';
+import { Input } from '../../components/ui/Input';
+import { Button } from '../../components/ui/Button';
+import { UserRole } from '../../types/api.types';
+import { GovernmentLogo } from '../../components/common/GovernmentLogo';
 
 
 

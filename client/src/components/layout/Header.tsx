@@ -1,4 +1,4 @@
-import type { FC, ReactNode } from 'react';
+import React, { ReactNode } from 'react';
 
 interface HeaderProps {
   title: string;
@@ -6,7 +6,7 @@ interface HeaderProps {
   action?: ReactNode;
 }
 
-export const Header: FC<HeaderProps> = ({ title, subtitle, action }) => {
+export const Header: React.FC<HeaderProps> = ({ title, subtitle, action }) => {
   return (
     <div className="mb-8">
       <div className="flex justify-between items-start">
