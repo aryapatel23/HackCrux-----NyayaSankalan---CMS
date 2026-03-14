@@ -642,6 +642,547 @@ async function main() {
     ],
   });
 
+  console.log('Creating additional dashboard coverage cases...');
+
+  type DashboardCaseConfig = {
+    firNumber: string;
+    stationId: string;
+    registeredBy: string;
+    sectionsApplied: string;
+    incidentDate: string;
+    createdAt: string;
+    statePath: string[];
+    assignedOfficerId?: string;
+    accusedNames?: string[];
+    evidenceCount?: number;
+    witnessCount?: number;
+    investigationEventCount?: number;
+    includeChargeSheet?: boolean;
+    includeClosureReport?: boolean;
+    courtId?: string;
+    courtSubmissionStatus?: 'SUBMITTED' | 'ACCEPTED';
+    courtActions?: Array<{
+      actionType: 'COGNIZANCE' | 'HEARING' | 'JUDGMENT' | 'CONVICTION';
+      offsetDays: number;
+    }>;
+    documentRequests?: Array<{
+      documentType: 'ARREST_WARRANT' | 'SEARCH_WARRANT' | 'REMAND_ORDER' | 'CHARGE_SHEET_COPY';
+      status: 'REQUESTED' | 'SHO_APPROVED' | 'ISSUED';
+      requestedBy: string;
+      approvedBy?: string;
+      issuedBy?: string;
+      requestReason: string;
+      remarks?: string;
+      issuedFileUrl?: string;
+      offsetDays: number;
+    }>;
+    reopenRequest?: {
+      requestedBy: string;
+      status: 'REQUESTED' | 'APPROVED' | 'REJECTED';
+      policeReason: string;
+      reviewedBy?: string;
+      judgeNote?: string;
+      offsetDays: number;
+      decidedOffsetDays?: number;
+    };
+    isArchived?: boolean;
+    closureReportUrl?: string;
+  };
+
+  const addDays = (date: string, days: number) => {
+    const value = new Date(date);
+    value.setDate(value.getDate() + days);
+    return value;
+  };
+
+  const actorForState = (state: string, assignedOfficerId?: string) => {
+    switch (state) {
+      case 'CASE_ASSIGNED':
+        return sho1.id;
+      case 'UNDER_INVESTIGATION':
+      case 'INVESTIGATION_COMPLETED':
+        return assignedOfficerId || police1.id;
+      case 'CHARGE_SHEET_PREPARED':
+      case 'SUBMITTED_TO_COURT':
+        return sho1.id;
+      case 'COURT_ACCEPTED':
+        return clerk.id;
+      case 'TRIAL_ONGOING':
+      case 'JUDGMENT_RESERVED':
+      case 'DISPOSED':
+      case 'ARCHIVED':
+        return judge.id;
+      default:
+        return sho1.id;
+    }
+  };
+
+  const createDashboardCase = async (config: DashboardCaseConfig) => {
+    const fir = await prisma.fir.create({
+      data: {
+        firNumber: config.firNumber,
+        firSource: 'POLICE',
+        registeredBy: config.registeredBy,
+        policeStationId: config.stationId,
+        incidentDate: new Date(config.incidentDate),
+        sectionsApplied: config.sectionsApplied,
+        firDocumentUrl: `https://example.com/firs/${config.firNumber.replace(/\//g, '-').toLowerCase()}.pdf`,
+        createdAt: new Date(config.createdAt),
+      },
+    });
+
+    const caseRecord = await prisma.case.create({
+      data: {
+        firId: fir.id,
+        createdAt: new Date(config.createdAt),
+        isArchived: config.isArchived || false,
+        closureReportUrl: config.closureReportUrl,
+      },
+    });
+
+    await prisma.currentCaseState.create({
+      data: {
+        caseId: caseRecord.id,
+        currentState: config.statePath[config.statePath.length - 1] as any,
+        updatedAt: addDays(config.createdAt, config.statePath.length),
+      },
+    });
+
+    if (config.statePath.length > 1) {
+      await prisma.caseStateHistory.createMany({
+        data: config.statePath.slice(1).map((toState, index) => ({
+          caseId: caseRecord.id,
+          fromState: config.statePath[index] as any,
+          toState: toState as any,
+          changedBy: actorForState(toState, config.assignedOfficerId),
+          changeReason: `${toState.replace(/_/g, ' ')} transition`,
+          changedAt: addDays(config.createdAt, index + 1),
+        })),
+      });
+    }
+
+    if (config.assignedOfficerId) {
+      await prisma.caseAssignment.create({
+        data: {
+          caseId: caseRecord.id,
+          assignedTo: config.assignedOfficerId,
+          assignedBy: sho1.id,
+          assignmentReason: 'Dashboard seed assignment',
+          assignedAt: addDays(config.createdAt, 1),
+        },
+      });
+    }
+
+    const accusedRecords = [] as Array<{ id: string; name: string }>;
+    for (const [index, accusedName] of (config.accusedNames || ['Unknown Accused']).entries()) {
+      const accused = await prisma.accused.create({
+        data: {
+          caseId: caseRecord.id,
+          name: accusedName,
+          status: index === 0 ? 'ARRESTED' : 'ON_BAIL',
+        },
+      });
+      accusedRecords.push({ id: accused.id, name: accused.name });
+    }
+
+    for (let index = 0; index < (config.investigationEventCount || 0); index += 1) {
+      await prisma.investigationEvent.create({
+        data: {
+          caseId: caseRecord.id,
+          eventType: index % 2 === 0 ? 'SEARCH' : 'STATEMENT',
+          description: `Supplemental investigation event ${index + 1} for ${config.firNumber}`,
+          performedBy: config.assignedOfficerId || config.registeredBy,
+          eventDate: addDays(config.createdAt, index + 2),
+        },
+      });
+    }
+
+    for (let index = 0; index < (config.evidenceCount || 0); index += 1) {
+      await prisma.evidence.create({
+        data: {
+          caseId: caseRecord.id,
+          category: index % 2 === 0 ? 'PHOTO' : 'REPORT',
+          fileUrl: `https://example.com/evidence/${config.firNumber.replace(/\//g, '-').toLowerCase()}-${index + 1}.pdf`,
+          fileName: `${config.firNumber.replace(/\//g, '-')}-evidence-${index + 1}.pdf`,
+          mimeType: 'application/pdf',
+          uploadedBy: config.assignedOfficerId || config.registeredBy,
+          uploadedAt: addDays(config.createdAt, index + 2),
+        },
+      });
+    }
+
+    for (let index = 0; index < (config.witnessCount || 0); index += 1) {
+      await prisma.witness.create({
+        data: {
+          caseId: caseRecord.id,
+          name: `Witness ${index + 1} - ${config.firNumber}`,
+          contact: `9000000${(index + 1).toString().padStart(3, '0')}`,
+          address: `${index + 1}, Justice Road, Bengaluru`,
+          statementFileUrl: `https://example.com/witness/${config.firNumber.replace(/\//g, '-').toLowerCase()}-${index + 1}.pdf`,
+        },
+      });
+    }
+
+    if (config.includeChargeSheet) {
+      await prisma.document.create({
+        data: {
+          caseId: caseRecord.id,
+          documentType: 'CHARGE_SHEET',
+          version: 1,
+          status: 'FINAL',
+          contentJson: {
+            title: `Charge Sheet - ${config.firNumber}`,
+            sections: config.sectionsApplied,
+            summary: `Charge sheet prepared for ${config.firNumber}`,
+          },
+          createdBy: sho1.id,
+          createdAt: addDays(config.createdAt, 4),
+        },
+      });
+    }
+
+    if (config.includeClosureReport) {
+      await prisma.document.create({
+        data: {
+          caseId: caseRecord.id,
+          documentType: 'CLOSURE_REPORT',
+          version: 1,
+          status: 'FINAL',
+          contentJson: {
+            title: `Closure Report - ${config.firNumber}`,
+            recommendation: 'Archived after disposal for dashboard coverage',
+          },
+          createdBy: judge.id,
+          createdAt: addDays(config.createdAt, 7),
+        },
+      });
+    }
+
+    if (config.courtId) {
+      const submission = await prisma.courtSubmission.create({
+        data: {
+          caseId: caseRecord.id,
+          submissionVersion: 1,
+          submittedBy: sho1.id,
+          courtId: config.courtId,
+          submittedAt: addDays(config.createdAt, 5),
+          status: config.courtSubmissionStatus || 'SUBMITTED',
+        },
+      });
+
+      await prisma.acknowledgement.create({
+        data: {
+          submissionId: submission.id,
+          ackNumber: `ACK-${config.firNumber.replace(/\//g, '-')}`,
+          ackTime: addDays(config.createdAt, 5),
+        },
+      });
+    }
+
+    if (config.courtActions?.length) {
+      await prisma.courtAction.createMany({
+        data: config.courtActions.map((action, index) => ({
+          caseId: caseRecord.id,
+          actionType: action.actionType,
+          orderFileUrl: `https://example.com/orders/${config.firNumber.replace(/\//g, '-').toLowerCase()}-${index + 1}.pdf`,
+          actionDate: addDays(config.createdAt, action.offsetDays),
+        })),
+      });
+    }
+
+    if (config.documentRequests?.length) {
+      await prisma.documentRequest.createMany({
+        data: config.documentRequests.map((request) => ({
+          caseId: caseRecord.id,
+          requestedBy: request.requestedBy,
+          approvedBy: request.approvedBy,
+          issuedBy: request.issuedBy,
+          documentType: request.documentType,
+          status: request.status,
+          requestReason: request.requestReason,
+          remarks: request.remarks,
+          issuedFileUrl: request.issuedFileUrl,
+          createdAt: addDays(config.createdAt, request.offsetDays),
+        })),
+      });
+    }
+
+    if (config.reopenRequest) {
+      await prisma.caseReopenRequest.create({
+        data: {
+          caseId: caseRecord.id,
+          requestedBy: config.reopenRequest.requestedBy,
+          reviewedBy: config.reopenRequest.reviewedBy,
+          status: config.reopenRequest.status,
+          policeReason: config.reopenRequest.policeReason,
+          judgeNote: config.reopenRequest.judgeNote,
+          createdAt: addDays(config.createdAt, config.reopenRequest.offsetDays),
+          decidedAt: config.reopenRequest.decidedOffsetDays !== undefined
+            ? addDays(config.createdAt, config.reopenRequest.decidedOffsetDays)
+            : null,
+        },
+      });
+    }
+
+    await prisma.auditLog.createMany({
+      data: [
+        {
+          userId: config.registeredBy,
+          action: 'CREATE',
+          entity: 'CASE',
+          entityId: caseRecord.id,
+          timestamp: new Date(config.createdAt),
+        },
+        {
+          userId: actorForState(config.statePath[config.statePath.length - 1], config.assignedOfficerId),
+          action: 'STATE_UPDATED',
+          entity: 'CASE',
+          entityId: caseRecord.id,
+          timestamp: addDays(config.createdAt, config.statePath.length),
+        },
+      ],
+    });
+
+    return { fir, caseRecord, accusedRecords };
+  };
+
+  const dashboardCases: DashboardCaseConfig[] = [
+    {
+      firNumber: 'FIR/2025/0004',
+      stationId: station1.id,
+      registeredBy: police1.id,
+      sectionsApplied: 'IPC 457, 380',
+      incidentDate: '2025-04-02',
+      createdAt: '2025-04-02',
+      statePath: ['FIR_REGISTERED'],
+      accusedNames: ['Mahesh Rao'],
+    },
+    {
+      firNumber: 'FIR/2025/0005',
+      stationId: station1.id,
+      registeredBy: police2.id,
+      sectionsApplied: 'IPC 354, 506',
+      incidentDate: '2025-04-04',
+      createdAt: '2025-04-04',
+      statePath: ['FIR_REGISTERED'],
+      accusedNames: ['Deepak Jain'],
+    },
+    {
+      firNumber: 'FIR/2025/0006',
+      stationId: station1.id,
+      registeredBy: police1.id,
+      sectionsApplied: 'IPC 307, 34',
+      incidentDate: '2025-04-06',
+      createdAt: '2025-04-06',
+      statePath: ['FIR_REGISTERED', 'CASE_ASSIGNED', 'UNDER_INVESTIGATION'],
+      assignedOfficerId: police1.id,
+      accusedNames: ['Shankar Naik'],
+      evidenceCount: 2,
+      witnessCount: 1,
+      investigationEventCount: 2,
+    },
+    {
+      firNumber: 'FIR/2025/0007',
+      stationId: station1.id,
+      registeredBy: police1.id,
+      sectionsApplied: 'IPC 420, 468',
+      incidentDate: '2025-04-08',
+      createdAt: '2025-04-08',
+      statePath: ['FIR_REGISTERED', 'CASE_ASSIGNED', 'UNDER_INVESTIGATION', 'INVESTIGATION_COMPLETED'],
+      assignedOfficerId: police1.id,
+      accusedNames: ['Kiran Shetty'],
+      evidenceCount: 1,
+      witnessCount: 1,
+      investigationEventCount: 2,
+    },
+    {
+      firNumber: 'FIR/2025/0008',
+      stationId: station1.id,
+      registeredBy: police2.id,
+      sectionsApplied: 'IPC 379, 411',
+      incidentDate: '2025-04-10',
+      createdAt: '2025-04-10',
+      statePath: ['FIR_REGISTERED', 'CASE_ASSIGNED', 'UNDER_INVESTIGATION', 'INVESTIGATION_COMPLETED', 'CHARGE_SHEET_PREPARED'],
+      assignedOfficerId: police2.id,
+      accusedNames: ['Arun Mistry'],
+      evidenceCount: 1,
+      witnessCount: 1,
+      investigationEventCount: 1,
+      includeChargeSheet: true,
+      documentRequests: [
+        {
+          documentType: 'REMAND_ORDER',
+          status: 'REQUESTED',
+          requestedBy: police2.id,
+          requestReason: 'Remand extension required before court filing',
+          offsetDays: 4,
+        },
+      ],
+    },
+    {
+      firNumber: 'FIR/2025/0009',
+      stationId: station1.id,
+      registeredBy: police2.id,
+      sectionsApplied: 'IPC 498A, 406',
+      incidentDate: '2025-04-12',
+      createdAt: '2025-04-12',
+      statePath: ['FIR_REGISTERED', 'CASE_ASSIGNED', 'UNDER_INVESTIGATION', 'INVESTIGATION_COMPLETED', 'CHARGE_SHEET_PREPARED', 'SUBMITTED_TO_COURT'],
+      assignedOfficerId: police2.id,
+      accusedNames: ['Nitin Verma'],
+      evidenceCount: 1,
+      witnessCount: 1,
+      investigationEventCount: 1,
+      includeChargeSheet: true,
+      courtId: court1.id,
+      courtSubmissionStatus: 'SUBMITTED',
+      documentRequests: [
+        {
+          documentType: 'CHARGE_SHEET_COPY',
+          status: 'SHO_APPROVED',
+          requestedBy: police2.id,
+          approvedBy: sho1.id,
+          requestReason: 'Certified charge sheet copy needed for court bundle',
+          offsetDays: 5,
+        },
+      ],
+    },
+    {
+      firNumber: 'FIR/2025/0010',
+      stationId: station1.id,
+      registeredBy: police1.id,
+      sectionsApplied: 'IPC 324, 326',
+      incidentDate: '2025-04-14',
+      createdAt: '2025-04-14',
+      statePath: ['FIR_REGISTERED', 'CASE_ASSIGNED', 'UNDER_INVESTIGATION', 'INVESTIGATION_COMPLETED', 'CHARGE_SHEET_PREPARED', 'SUBMITTED_TO_COURT'],
+      assignedOfficerId: police1.id,
+      accusedNames: ['Rohit Das'],
+      evidenceCount: 1,
+      witnessCount: 1,
+      investigationEventCount: 1,
+      includeChargeSheet: true,
+      courtId: court1.id,
+      courtSubmissionStatus: 'SUBMITTED',
+    },
+    {
+      firNumber: 'FIR/2025/0011',
+      stationId: station1.id,
+      registeredBy: police1.id,
+      sectionsApplied: 'IPC 395, 397',
+      incidentDate: '2025-04-16',
+      createdAt: '2025-04-16',
+      statePath: ['FIR_REGISTERED', 'CASE_ASSIGNED', 'UNDER_INVESTIGATION', 'INVESTIGATION_COMPLETED', 'CHARGE_SHEET_PREPARED', 'SUBMITTED_TO_COURT', 'COURT_ACCEPTED'],
+      assignedOfficerId: police1.id,
+      accusedNames: ['Imran Khan'],
+      evidenceCount: 1,
+      witnessCount: 1,
+      investigationEventCount: 2,
+      includeChargeSheet: true,
+      courtId: court1.id,
+      courtSubmissionStatus: 'ACCEPTED',
+      courtActions: [
+        { actionType: 'COGNIZANCE', offsetDays: 7 },
+      ],
+    },
+    {
+      firNumber: 'FIR/2025/0012',
+      stationId: station1.id,
+      registeredBy: police2.id,
+      sectionsApplied: 'IPC 376, 506',
+      incidentDate: '2025-04-18',
+      createdAt: '2025-04-18',
+      statePath: ['FIR_REGISTERED', 'CASE_ASSIGNED', 'UNDER_INVESTIGATION', 'INVESTIGATION_COMPLETED', 'CHARGE_SHEET_PREPARED', 'SUBMITTED_TO_COURT', 'COURT_ACCEPTED', 'TRIAL_ONGOING'],
+      assignedOfficerId: police2.id,
+      accusedNames: ['Vikram Singh'],
+      evidenceCount: 1,
+      witnessCount: 1,
+      investigationEventCount: 2,
+      includeChargeSheet: true,
+      courtId: court1.id,
+      courtSubmissionStatus: 'ACCEPTED',
+      courtActions: [
+        { actionType: 'COGNIZANCE', offsetDays: 7 },
+        { actionType: 'HEARING', offsetDays: 9 },
+      ],
+    },
+    {
+      firNumber: 'FIR/2025/0013',
+      stationId: station1.id,
+      registeredBy: police1.id,
+      sectionsApplied: 'IPC 409, 120B',
+      incidentDate: '2025-04-20',
+      createdAt: '2025-04-20',
+      statePath: ['FIR_REGISTERED', 'CASE_ASSIGNED', 'UNDER_INVESTIGATION', 'INVESTIGATION_COMPLETED', 'CHARGE_SHEET_PREPARED', 'SUBMITTED_TO_COURT', 'COURT_ACCEPTED', 'TRIAL_ONGOING', 'JUDGMENT_RESERVED'],
+      assignedOfficerId: police1.id,
+      accusedNames: ['Sanjay Kulkarni'],
+      evidenceCount: 1,
+      witnessCount: 1,
+      investigationEventCount: 2,
+      includeChargeSheet: true,
+      courtId: court1.id,
+      courtSubmissionStatus: 'ACCEPTED',
+      courtActions: [
+        { actionType: 'COGNIZANCE', offsetDays: 7 },
+        { actionType: 'HEARING', offsetDays: 10 },
+      ],
+    },
+    {
+      firNumber: 'FIR/2025/0014',
+      stationId: station1.id,
+      registeredBy: police2.id,
+      sectionsApplied: 'IPC 304B, 498A',
+      incidentDate: '2025-04-22',
+      createdAt: '2025-04-22',
+      statePath: ['FIR_REGISTERED', 'CASE_ASSIGNED', 'UNDER_INVESTIGATION', 'INVESTIGATION_COMPLETED', 'CHARGE_SHEET_PREPARED', 'SUBMITTED_TO_COURT', 'COURT_ACCEPTED', 'TRIAL_ONGOING', 'DISPOSED'],
+      assignedOfficerId: police2.id,
+      accusedNames: ['Manoj Tyagi'],
+      evidenceCount: 1,
+      witnessCount: 1,
+      investigationEventCount: 2,
+      includeChargeSheet: true,
+      courtId: court1.id,
+      courtSubmissionStatus: 'ACCEPTED',
+      courtActions: [
+        { actionType: 'COGNIZANCE', offsetDays: 7 },
+        { actionType: 'HEARING', offsetDays: 9 },
+        { actionType: 'CONVICTION', offsetDays: 12 },
+      ],
+    },
+    {
+      firNumber: 'FIR/2025/0015',
+      stationId: station1.id,
+      registeredBy: police1.id,
+      sectionsApplied: 'IPC 201, 202',
+      incidentDate: '2025-04-24',
+      createdAt: '2025-04-24',
+      statePath: ['FIR_REGISTERED', 'CASE_ASSIGNED', 'UNDER_INVESTIGATION', 'INVESTIGATION_COMPLETED', 'CHARGE_SHEET_PREPARED', 'SUBMITTED_TO_COURT', 'COURT_ACCEPTED', 'TRIAL_ONGOING', 'ARCHIVED'],
+      assignedOfficerId: police1.id,
+      accusedNames: ['Pankaj Nair'],
+      evidenceCount: 1,
+      witnessCount: 1,
+      investigationEventCount: 1,
+      includeClosureReport: true,
+      courtId: court1.id,
+      courtSubmissionStatus: 'ACCEPTED',
+      courtActions: [
+        { actionType: 'COGNIZANCE', offsetDays: 7 },
+        { actionType: 'HEARING', offsetDays: 9 },
+        { actionType: 'JUDGMENT', offsetDays: 12 },
+      ],
+      isArchived: true,
+      closureReportUrl: 'https://example.com/closure/fir-2025-0015.pdf',
+      reopenRequest: {
+        requestedBy: police1.id,
+        status: 'REQUESTED',
+        policeReason: 'Fresh witness statement and CCTV footage recovered',
+        offsetDays: 13,
+      },
+    },
+  ];
+
+  for (const config of dashboardCases) {
+    await createDashboardCase(config);
+  }
+
   console.log('✅ Database seeded successfully with comprehensive dummy data!');
   console.log('\n📋 Test Credentials:');
   console.log('-------------------');
@@ -671,23 +1212,16 @@ async function main() {
   console.log(`Court 2: ${court2.name}`);
   console.log('\n📊 Sample Data Created:');
   console.log('-------------------');
-  console.log('✓ 3 FIRs registered');
-  console.log('✓ 3 Cases created');
-  console.log('✓ 3 Accused persons');
-  console.log('✓ 5 Investigation events');
-  console.log('✓ 3 Evidence items');
-  console.log('✓ 3 Witnesses');
-  console.log('✓ 2 Documents (Charge Sheet, Closure Report)');
-  console.log('✓ 1 Bail record');
-  console.log('✓ 1 Court submission');
-  console.log('✓ 2 Document requests (Arrest Warrant, Search Warrant)');
-  console.log('✓ 1 Court action');
-  console.log('✓ 1 Case reopen request');
+  console.log('✓ Dashboard-ready cases across FIR, investigation, court intake, trial, and archive stages');
+  console.log('✓ Mixed police, SHO, clerk, and judge workflow data');
+  console.log('✓ Pending and approved document requests for court flow testing');
+  console.log('✓ Pending and decided case reopen requests for judge workflow testing');
   console.log('\n🎯 Case States:');
   console.log('-------------------');
   console.log(`Case 1 (${fir1.firNumber}): UNDER_INVESTIGATION`);
   console.log(`Case 2 (${fir2.firNumber}): CHARGE_SHEET_PREPARED`);
   console.log(`Case 3 (${fir3.firNumber}): CLOSURE_REPORT_PREPARED (with reopen request)`);
+  console.log('Additional seeded states: FIR_REGISTERED, INVESTIGATION_COMPLETED, SUBMITTED_TO_COURT, COURT_ACCEPTED, TRIAL_ONGOING, JUDGMENT_RESERVED, DISPOSED, ARCHIVED');
 }
 
 main()
