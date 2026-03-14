@@ -5,7 +5,6 @@ import { useNotifications } from '../context/NotificationContext';
 import { Button } from '../components/ui/Button';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Loader } from '../components/common/Loader';
 
 export const Notifications: React.FC = () => {
   const { notifications, unreadCount, markAsRead, markAllRead, refresh } = useNotifications();
