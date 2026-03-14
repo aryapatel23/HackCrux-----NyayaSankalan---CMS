@@ -125,12 +125,12 @@ function App() {
 
             {/* Police - reopen requests listing */}
             <Route
-              path="/police/case-reopen"
+              path="/police/case-reopen/*"
               element={
                 <ProtectedRoute allowedRoles={[UserRole.POLICE]}>
                   <Layout>
                     <Routes>
-                      <Route path="" element={<MyReopenRequests />} />
+                      <Route index element={<MyReopenRequests />} />
                     </Routes>
                   </Layout>
                 </ProtectedRoute>

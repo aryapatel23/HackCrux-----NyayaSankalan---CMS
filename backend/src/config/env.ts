@@ -13,6 +13,7 @@ interface Config {
   databaseUrl: string;
   nodeEnv: string;
   aiPocUrl: string;
+  geminiApiKey: string;
   cloudinary: CloudinaryConfig;
 }
 
@@ -24,6 +25,7 @@ const getConfig = (): Config => {
     databaseUrl: process.env.DATABASE_URL || '',
     nodeEnv: process.env.NODE_ENV || 'development',
     aiPocUrl: process.env.AI_POC_URL || 'http://localhost:8001',
+    geminiApiKey: process.env.GEMINI_API_KEY || '',
     cloudinary: {
       cloudName: process.env.CLOUDINARY_CLOUD_NAME || '',
       apiKey: process.env.CLOUDINARY_API_KEY || '',

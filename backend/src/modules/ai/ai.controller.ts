@@ -1,8 +1,11 @@
 import { Request, Response } from 'express';
 import { AIService } from './ai.service';
+import { GeminiService } from '../../services/gemini.service';
 import { asyncHandler } from '../../utils/asyncHandler';
+import { formatLegalReferenceAnswer, getLegalReference, parseSectionQuery } from './legal-reference.data';
 
 const aiService = new AIService();
+const geminiService = new GeminiService();
 
 export const rebuildIndex = asyncHandler(async (req: Request, res: Response) => {
   const result = await aiService.indexAll();
@@ -65,6 +68,45 @@ export const proxyChat = asyncHandler(async (req: Request, res: Response) => {
     });
   }
 
-  const result = await aiService.chat({ q, k, model });
-  res.status(200).json(result);
+  // --- Primary: Direct Gemini connection ---
+  if (geminiService.isAvailable()) {
+    try {
+      const geminiResult = await geminiService.chat(q);
+      return res.status(200).json(geminiResult);
+    } catch (geminiError) {
+      console.error('[GeminiService] Error:', geminiError);
+    }
+  }
+
+  // --- Fallback 1: AI PoC service ---
+  try {
+    const result = await aiService.chat({ q, k, model });
+    return res.status(200).json(result);
+  } catch {
+    // --- Fallback 2: Local static reference data ---
+    const sectionQuery = parseSectionQuery(q);
+    if (sectionQuery) {
+      const reference = getLegalReference(sectionQuery.section, sectionQuery.codeType);
+      if (reference) {
+        return res.status(200).json({
+          success: true,
+          answer: formatLegalReferenceAnswer(reference),
+          sources: [{
+            source: `${sectionQuery.codeType.toUpperCase()} local legal reference`,
+            score: 1,
+            id: `${sectionQuery.codeType}-${sectionQuery.section}`,
+          }],
+          meta: { fallback: true, provider: 'local' },
+        });
+      }
+    }
+
+    // --- Fallback 3: Inform user ---
+    return res.status(200).json({
+      success: true,
+      answer: 'The AI service is currently unavailable. Please try again later or ask about a specific IPC section like IPC 302 or IPC 420.',
+      sources: [{ source: 'System', score: 0.1, id: 'fallback-unavailable' }],
+      meta: { fallback: true },
+    });
+  }
 });
