@@ -1,5 +1,4 @@
-import React from 'react';
-import type { FC, ReactNode } from 'react';
+import React, { ReactNode } from 'react';
 
 export interface EmptyStateProps {
   title?: string;
@@ -10,7 +9,7 @@ export interface EmptyStateProps {
   };
 }
 
-export const EmptyState: FC<EmptyStateProps> = ({ title, message, action }) => {
+export const EmptyState: React.FC<EmptyStateProps> = ({ title, message, action }) => {
   const renderAction = () => {
     if (!action) return null;
     

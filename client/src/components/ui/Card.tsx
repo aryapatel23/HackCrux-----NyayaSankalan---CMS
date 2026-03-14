@@ -1,4 +1,4 @@
-import type { FC, ReactNode } from 'react';
+import React, { ReactNode } from 'react';
 
 interface CardProps {
   children: ReactNode;
@@ -6,7 +6,7 @@ interface CardProps {
   className?: string;
 }
 
-export const Card: FC<CardProps> = ({ children, title, className = '' }) => {
+export const Card: React.FC<CardProps> = ({ children, title, className = '' }) => {
   return (
     <div className={`card ${className}`}>
       {title && (

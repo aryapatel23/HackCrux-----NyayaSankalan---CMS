@@ -1,11 +1,11 @@
-import type { FC, ReactNode } from 'react';
+import React, { ReactNode } from 'react';
 
 interface BadgeProps {
   children: ReactNode;
   variant?: 'success' | 'warning' | 'danger' | 'info' | 'default';
 }
 
-export const Badge: FC<BadgeProps> = ({ children, variant = 'info' }) => {
+export const Badge: React.FC<BadgeProps> = ({ children, variant = 'info' }) => {
   const variantClasses = {
     success: 'badge-success',
     warning: 'badge-warning',

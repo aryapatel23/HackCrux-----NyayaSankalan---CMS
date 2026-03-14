@@ -1,4 +1,4 @@
-import type { FC, SelectHTMLAttributes } from 'react';
+import React, { SelectHTMLAttributes } from 'react';
 
 interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label?: string;
@@ -7,7 +7,7 @@ interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   wrapperClassName?: string;
 }
 
-export const Select: FC<SelectProps> = ({
+export const Select: React.FC<SelectProps> = ({
   label,
   error,
   options,
