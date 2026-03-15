@@ -36,6 +36,8 @@ const QUICK_QUESTIONS = [
   'Difference between IPC 302 and 304',
 ];
 
+const hasDevanagari = (text: string) => /[\u0900-\u097F]/.test(text);
+
 type SectionQuery = {
   codeType: 'ipc' | 'bns';
   section: string;
@@ -133,11 +135,137 @@ const ChatbotWidget: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [speechEnabled, setSpeechEnabled] = useState(true);
+  const [speechLang, setSpeechLang] = useState<'en-IN' | 'hi-IN'>('en-IN');
+  const [speakingMessageIndex, setSpeakingMessageIndex] = useState<number | null>(null);
+  const [speechBusy, setSpeechBusy] = useState(false);
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [translatedSpeechCache, setTranslatedSpeechCache] = useState<Record<string, string>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const speechSupported = typeof window !== 'undefined' && 'speechSynthesis' in window;
+
+  const stopSpeech = () => {
+    if (!speechSupported) return;
+    window.speechSynthesis.cancel();
+    setSpeakingMessageIndex(null);
+  };
+
+  const sanitizeForSpeech = (text: string) => {
+    return text
+      .replace(/\*\*/g, '')
+      .replace(/`/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  const refreshVoices = () => {
+    if (!speechSupported) return;
+    setAvailableVoices(window.speechSynthesis.getVoices());
+  };
+
+  const toHindiSpeechText = async (text: string) => {
+    const normalized = sanitizeForSpeech(text);
+    if (!normalized) return normalized;
+
+    const cached = translatedSpeechCache[normalized];
+    if (cached) return cached;
+
+    try {
+      setSpeechBusy(true);
+      const promptPrimary = `Translate the following legal explanation to clear, natural Hindi for voice playback. Keep legal section numbers and case names unchanged. CRITICAL: return only Hindi in Devanagari script. Do not return English. No bullet symbols, no extra notes.\n\n${normalized}`;
+      const resPrimary = await apiClient.post('/ai/chat', { q: promptPrimary, k: 1 });
+      let translated = sanitizeForSpeech(
+        resPrimary.data?.answer ||
+        resPrimary.data?.data?.answer ||
+        '',
+      );
+
+      // Retry once with a stricter instruction if model returns mostly English.
+      if (!hasDevanagari(translated)) {
+        const promptRetry = `केवल देवनागरी हिंदी में अनुवाद करें। अंग्रेजी का उपयोग न करें। कानूनी सेक्शन नंबर जैसे IPC 302 वैसे ही रखें। केवल अनुवादित पाठ दें:\n\n${normalized}`;
+        const resRetry = await apiClient.post('/ai/chat', { q: promptRetry, k: 1 });
+        translated = sanitizeForSpeech(
+          resRetry.data?.answer ||
+          resRetry.data?.data?.answer ||
+          translated,
+        );
+      }
+
+      if (!translated) {
+        translated = normalized;
+      }
+
+      setTranslatedSpeechCache((prev) => ({
+        ...prev,
+        [normalized]: translated,
+      }));
+
+      return translated;
+    } catch {
+      // Fallback: speak original text if translation fails.
+      return normalized;
+    } finally {
+      setSpeechBusy(false);
+    }
+  };
+
+  const speakText = async (text: string, messageIndex: number) => {
+    if (!speechSupported || !speechEnabled) return;
+
+    if (speakingMessageIndex === messageIndex) {
+      stopSpeech();
+      return;
+    }
+
+    stopSpeech();
+
+    const content = speechLang === 'hi-IN'
+      ? await toHindiSpeechText(text)
+      : sanitizeForSpeech(text);
+
+    const utterance = new SpeechSynthesisUtterance(content);
+    utterance.lang = speechLang;
+
+    const availableVoices = window.speechSynthesis.getVoices();
+    const exactVoice = availableVoices.find((v) => v.lang.toLowerCase() === speechLang.toLowerCase());
+    const baseLang = speechLang.split('-')[0].toLowerCase();
+    const baseVoice = availableVoices.find((v) => v.lang.toLowerCase().startsWith(baseLang));
+    if (exactVoice) {
+      utterance.voice = exactVoice;
+    } else if (baseVoice) {
+      utterance.voice = baseVoice;
+    }
+
+    utterance.rate = 0.95;
+    utterance.pitch = 1;
+    utterance.onstart = () => setSpeakingMessageIndex(messageIndex);
+    utterance.onend = () => setSpeakingMessageIndex(null);
+    utterance.onerror = () => setSpeakingMessageIndex(null);
+
+    window.speechSynthesis.speak(utterance);
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    return () => {
+      if (speechSupported) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, [speechSupported]);
+
+  useEffect(() => {
+    if (!speechSupported) return;
+    refreshVoices();
+    window.speechSynthesis.onvoiceschanged = refreshVoices;
+
+    return () => {
+      window.speechSynthesis.onvoiceschanged = null;
+    };
+  }, [speechSupported]);
 
   const sendMessage = async () => {
     if (!input.trim()) return;
@@ -250,15 +378,69 @@ const ChatbotWidget: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     if (e.key === 'Enter' && !loading) sendMessage();
   };
 
+  const hindiVoiceAvailable = availableVoices.some((v) => v.lang.toLowerCase().startsWith('hi'));
+
   return (
-    <div className="fixed bottom-20 right-6 z-50 w-[24rem] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl flex flex-col" style={{ height: 520 }}>
-      <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3">
+    <div className="fixed bottom-20 right-6 z-50 w-104 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl flex flex-col" style={{ height: 560 }}>
+      <div className="flex items-start justify-between border-b border-slate-200 bg-slate-50 px-4 py-3">
         <div>
           <span className="block font-semibold text-slate-900">IPC / BNS Legal Assistant</span>
-          <span className="text-xs text-slate-500">Explain sections, punishment, bailability, and precedents</span>
+          <span className="block text-xs text-slate-500 mt-0.5">Explain sections, punishment, bailability, and precedents</span>
         </div>
         <button onClick={onClose} className="text-gray-500 hover:text-red-500 text-lg">×</button>
       </div>
+
+      {speechSupported && (
+        <div className="border-b border-slate-200 bg-white px-4 py-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setSpeechEnabled((v) => !v)}
+              className={`rounded-full border px-2.5 py-1 text-xs font-medium ${speechEnabled ? 'border-green-200 bg-green-50 text-green-700' : 'border-slate-200 bg-white text-slate-600'}`}
+              title={speechEnabled ? 'Speech enabled' : 'Speech disabled'}
+            >
+              {speechEnabled ? 'Voice On' : 'Voice Off'}
+            </button>
+
+            <div className="inline-flex rounded-full border border-slate-200 overflow-hidden text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setSpeechLang('en-IN');
+                  stopSpeech();
+                }}
+                className={`px-2.5 py-1 font-medium ${speechLang === 'en-IN' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700'}`}
+              >
+                EN
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSpeechLang('hi-IN');
+                  stopSpeech();
+                }}
+                className={`px-2.5 py-1 font-medium ${speechLang === 'hi-IN' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700'}`}
+              >
+                HI
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={stopSpeech}
+              className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600"
+              title="Stop speaking"
+            >
+              Stop
+            </button>
+          </div>
+          {speechLang === 'hi-IN' && !hindiVoiceAvailable && (
+            <p className="mt-2 text-[11px] text-amber-700">
+              Hindi voice not found on this browser/OS. Translation will still be Hindi, but voice quality may vary.
+            </p>
+          )}
+        </div>
+      )}
       <div className="border-b border-slate-200 bg-white px-4 py-3">
         <div className="flex flex-wrap gap-2">
           {QUICK_QUESTIONS.map((question) => (
@@ -278,6 +460,22 @@ const ChatbotWidget: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           <div key={idx} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-[88%] rounded-2xl px-3 py-2 text-sm shadow-sm ${msg.sender === 'user' ? 'bg-blue-600 text-right text-white' : 'border border-slate-200 bg-white text-slate-800'}`}>
               <div className="whitespace-pre-wrap leading-6">{msg.text}</div>
+              {msg.sender === 'bot' && speechSupported && (
+                <div className="mt-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => speakText(msg.text, idx)}
+                    className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+                    disabled={speechBusy && speakingMessageIndex !== idx}
+                  >
+                    {speakingMessageIndex === idx
+                      ? 'Stop Voice'
+                      : speechBusy
+                        ? 'Preparing Hindi...'
+                        : 'Speak'}
+                  </button>
+                </div>
+              )}
               {msg.sender === 'bot' && msg.sources && msg.sources.length > 0 && (
                 <div className="mt-3 border-t border-slate-100 pt-2 text-xs text-slate-500">
                   <div className="mb-1 font-medium text-slate-600">Sources</div>
